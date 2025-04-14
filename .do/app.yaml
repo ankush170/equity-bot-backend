@@ -1,0 +1,12 @@
+name: equity-bot-backend
+services:
+  - name: web
+    dockerfile_path: Dockerfile
+    source_dir: /
+    github:
+      branch: main
+      deploy_on_push: true
+    health_check:
+      http_path: /docs
+    instance_size_slug: basic-xxs
+    instance_count: 1

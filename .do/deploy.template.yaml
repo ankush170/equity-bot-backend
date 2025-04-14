@@ -1,0 +1,9 @@
+spec:
+  name: equity-bot-backend
+  services:
+  - name: web
+    git:
+      branch: main
+      repo_clone_url: https://github.com/YourUsername/equity-bot-backend.git
+    dockerfile_path: Dockerfile
+    instance_size_slug: basic-xxs

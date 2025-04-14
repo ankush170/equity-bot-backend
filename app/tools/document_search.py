@@ -22,7 +22,7 @@ class QdrantSearchResponse(BaseModel):
 async def qdrant_search_tool(
     query: str = Field(..., description="The search query to execute"),
     num_results: int = Field(5, description="Number of results to return"),
-    user_id: Optional[str] = Field(None, description="User ID for filtering results")
+    user_id: str = Field(..., description="User ID for filtering results")
 ) -> QdrantSearchResponse:
     """
     Searches the qdrant for information based on the provided query.
@@ -39,16 +39,16 @@ async def qdrant_search_tool(
         A QdrantSearchResponse object containing the search results
     """
     try:
-        # Use the user_id for filtering if provided
+        print(f"Search query: {query}")
+        print(f"User ID for filter: {user_id}")
+        
+        # Use the user_id for filtering
         results = CustomDocument.search(
             query=query,
             filters={"user_id": user_id} if user_id else None,
             limit=num_results
         )
         
-        # Add debug logging
-        print(f"Search query: {query}")
-        print(f"User ID filter: {user_id}")
         print(f"Number of results: {len(results)}")
         
         # Create a list of QdrantSearchResult from the results
@@ -67,5 +67,5 @@ async def qdrant_search_tool(
         return QdrantSearchResponse(results=[], total_results=0)
 
 if __name__ == "__main__":
-    ans = asyncio.run(qdrant_search_tool("What is the capital of India?"))
+    ans = asyncio.run(qdrant_search_tool("What is the capital of India?", 5, "user123"))
     print(ans)

@@ -36,7 +36,7 @@ class AgentResponse(BaseModel):
     delta: Optional[str] = Field(None, description="The delta of the response")
 
  
-def create_agent(web_search: bool = False, document_search: bool = False):
+def create_agent(web_search: bool = False, document_search: bool = False, document_user_id: Optional[str] = None):
     """Create and configure the AI agent with tools"""
     try:
         # Create the Bedrock provider with AWS credentials
@@ -85,7 +85,13 @@ def create_agent(web_search: bool = False, document_search: bool = False):
                 give clarifications from the document itself, dont give your own interpretations. only answer from the document.
                 please cite the page number from where you got the information.
                 """
-            tools = [qdrant_search_tool]  # No tools when web_search is disabled
+            # Instead of trying to configure the tool, we'll use the original tool
+            # and handle the user_id in the tool's implementation
+            tools = [qdrant_search_tool]
+            
+            # Add the user_id to the system prompt so the agent knows to use it
+            if document_user_id:
+                system_prompt += f"\n\nWhen using the qdrant_search_tool, always pass the user_id parameter with the value '{document_user_id}'."
         else:
             system_prompt = """
                 You are an expert financial analyst engaging in a conversation about financial topics.
@@ -179,7 +185,12 @@ async def run_agent_with_streaming(agent: Agent, query: str, conversation_histor
     """Run the agent with the provided query and stream its internal processing events."""
     current_text = ""
     buffer = ""  # Add a buffer to handle partial words/characters
-    first_chunk = True  # Flag to handle the first chunk differently
+    first_response_started = False  # Flag to track first real response chunk
+
+    print("\n=== Starting New Agent Run ===")
+    print(f"Query: {query}")
+    if conversation_history:
+        print(f"Conversation History Length: {len(conversation_history)}")
 
     # Format conversation history for the agent
     formatted_prompt = query
@@ -189,48 +200,95 @@ async def run_agent_with_streaming(agent: Agent, query: str, conversation_histor
             role = "User" if msg["role"] == "user" else "Assistant"
             formatted_prompt += f"{role}: {msg['content']}\n"
         formatted_prompt += f"\nCurrent query: {query}"
+        print("\nFormatted Prompt:")
+        print(formatted_prompt)
 
     async with agent.iter(user_prompt=formatted_prompt) as run:
         async for node in run:
+            print(f"\nNode Type: {type(node).__name__}")
+            
             if Agent.is_model_request_node(node):
+                print("Processing Model Request Node")
+                initial_buffer = ""  # Buffer specifically for initial response
+                
                 async with node.stream(run.ctx) as request_stream:
                     async for event in request_stream:
                         if isinstance(event, PartDeltaEvent):
                             if isinstance(event.delta, TextPartDelta):
                                 content = event.delta.content_delta
+                                print(f"Content Delta: {content}", end='', flush=True)
                                 
-                                # Handle first chunk immediately
-                                if first_chunk and content.strip():
-                                    first_chunk = False
-                                    current_text += content
-                                    yield AgentResponse(
-                                        response=current_text,
-                                        delta=content
-                                    )
-                                    continue
-
-                                # Add new content to buffer
-                                buffer += content
-                                
-                                # If buffer contains complete words or punctuation, yield it
-                                if buffer.endswith((' ', '.', '!', '?', '\n', ',', ':', '-', ';')):
-                                    current_text += buffer
-                                    yield AgentResponse(
-                                        response=current_text,
-                                        delta=buffer
-                                    )
-                                    buffer = ""  # Clear the buffer after yielding
+                                if not first_response_started:
+                                    # Accumulate initial content until we have enough to identify a proper sentence start
+                                    initial_buffer += content
+                                    
+                                    # Wait until we have enough content to ensure we've captured the start of the sentence
+                                    if len(initial_buffer) >= 15 or "." in initial_buffer or "!" in initial_buffer or "?" in initial_buffer:
+                                        # Fix common truncation issues with the first character
+                                        
+                                        # Common starting word repairs
+                                        if initial_buffer.startswith(" apologize") or initial_buffer.startswith("apologize"):
+                                            initial_buffer = "I " + initial_buffer.lstrip()
+                                        elif initial_buffer.startswith(" am") or initial_buffer.startswith("am "):
+                                            initial_buffer = "I" + initial_buffer
+                                        elif initial_buffer.startswith("'d ") or initial_buffer.startswith("d "):
+                                            initial_buffer = "I" + initial_buffer.replace("d ", "'d ")
+                                        elif initial_buffer.startswith("'ll ") or initial_buffer.startswith("ll "):
+                                            initial_buffer = "I" + initial_buffer.replace("ll ", "'ll ")
+                                        elif initial_buffer.startswith("'m ") or initial_buffer.startswith("m "):
+                                            initial_buffer = "I" + initial_buffer.replace("m ", "'m ")
+                                        elif initial_buffer.startswith(" can") or initial_buffer.startswith("can "):
+                                            initial_buffer = "I" + initial_buffer
+                                        elif initial_buffer.startswith(" will") or initial_buffer.startswith("will "):
+                                            initial_buffer = "I" + initial_buffer
+                                        # Fix missing 'T' in "The"  
+                                        elif initial_buffer.startswith("he ") and len(initial_buffer) < 25:
+                                            initial_buffer = "T" + initial_buffer
+                                        # Fix missing 'L' in "Let"
+                                        elif initial_buffer.startswith("et ") and len(initial_buffer) < 25:
+                                            initial_buffer = "L" + initial_buffer
+                                        # General case - if it starts with a space, assume it needs "I" prefix
+                                        elif initial_buffer.strip() and initial_buffer.startswith(" ") and len(initial_buffer) < 25:
+                                            initial_buffer = "I" + initial_buffer
+                                        
+                                        current_text = initial_buffer
+                                        print(f"\nFirst Response Started: {initial_buffer}")
+                                        
+                                        yield AgentResponse(
+                                            response=current_text,
+                                            delta=initial_buffer
+                                        )
+                                        
+                                        first_response_started = True
+                                        initial_buffer = ""  # Clear the initial buffer
+                                else:
+                                    # Handle normal streaming after the first chunk is processed
+                                    buffer += content
+                                    
+                                    # If buffer contains complete words or punctuation, yield it
+                                    if buffer.endswith((' ', '.', '!', '?', '\n', ',', ':', '-', ';')):
+                                        current_text += buffer
+                                        print(f"\nYielding Buffer: {buffer}")
+                                        yield AgentResponse(
+                                            response=current_text,
+                                            delta=buffer
+                                        )
+                                        buffer = ""  # Clear the buffer after yielding
 
             elif Agent.is_end_node(node):
-                # Yield any remaining content in buffer
+                print("\nReached End Node")
+                # Yield any remaining content in buffer or initial buffer
                 if buffer:
                     current_text += buffer
+                    print(f"Final Buffer Content: {buffer}")
                     yield AgentResponse(
                         response=current_text,
                         delta=buffer
                     )
                 
                 # Signal completion
+                print("\n=== Agent Run Complete ===")
+                print(f"Final Response Length: {len(current_text)}")
                 yield AgentResponse(
                     response=current_text,
                     delta=""  # Empty delta signals completion

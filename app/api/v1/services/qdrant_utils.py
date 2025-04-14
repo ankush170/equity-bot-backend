@@ -97,6 +97,9 @@ def get_collection_name(class_name) -> str:
 
 def search_qdrant_with_filters(qdrant_client, collection_name, query_vector, filters=None, limit=5):
     try:
+        print(f"Starting Qdrant search in collection: {collection_name}")
+        print(f"Using filters: {filters}")
+        
         if filters is not None and not isinstance(filters, dict):
             logger.warning(f"Invalid filters type: expected dict, got {type(filters)}. Proceeding without filters.")
             filters = None
@@ -105,6 +108,7 @@ def search_qdrant_with_filters(qdrant_client, collection_name, query_vector, fil
             filter_conditions = []
             
             for key, value in filters.items():
+                print(f"Adding filter condition: {key}={value}")
                 filter_conditions.append(
                     models.FieldCondition(
                         key=key,
@@ -117,7 +121,8 @@ def search_qdrant_with_filters(qdrant_client, collection_name, query_vector, fil
                     must=filter_conditions
                 )
                 
-                return qdrant_client.search(
+                print(f"Executing search with filter conditions: {filter_conditions}")
+                results = qdrant_client.search(
                     collection_name=collection_name,
                     query_vector=query_vector,
                     query_filter=search_filter,
@@ -125,14 +130,19 @@ def search_qdrant_with_filters(qdrant_client, collection_name, query_vector, fil
                     with_payload=True,
                     with_vectors=True
                 )
+                print(f"Search returned {len(results)} results")
+                return results
         
-        return qdrant_client.search(
+        print("Executing search without filters")
+        results = qdrant_client.search(
             collection_name=collection_name,
             query_vector=query_vector,
             limit=limit,
             with_payload=True,
             with_vectors=True
         )
+        print(f"Search returned {len(results)} results")
+        return results
     except Exception as e:
         logger.error(f"Error searching Qdrant with filters: {str(e)}")
         return []

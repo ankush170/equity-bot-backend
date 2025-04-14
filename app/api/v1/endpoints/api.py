@@ -46,11 +46,11 @@ class StreamResponse(BaseModel):
     type: str = Field(..., description="Type of the response (thread_id, content, or done)")
     content: str = Field(..., description="The content of the response")
 
-async def stream_agent_response(user_id: str, query: str, thread_id: Optional[str] = None, web_search: bool = False, use_document_search: bool = False):
+async def stream_agent_response(user_id: str, query: str, thread_id: Optional[str] = None, web_search: bool = False, use_document_search: bool = False, document_user_id: Optional[str] = None):
     """Stream the agent's response and save to database"""
     try:
-        # Create agent
-        agent = create_agent(web_search, document_search=use_document_search)
+        # Create agent with the document user ID if needed
+        agent = create_agent(web_search, document_search=use_document_search, document_user_id=document_user_id)
         
         # Get or create user
         user = User.objects(id=user_id).first()
@@ -168,12 +168,15 @@ async def chat_endpoint(request: ChatRequest):
     try:
         # If document_id is provided, use document search instead of web search
         use_document_search = False
+        document_user_id = None
+        
         if request.document_id:
             # Verify document exists and belongs to user
             document = CustomDocument.objects(id=request.document_id, user=request.user_id).first()
             if not document:
                 raise HTTPException(status_code=404, detail="Document not found or access denied")
             use_document_search = True
+            document_user_id = str(request.user_id)  # Store user_id for document search
             request.web_search = False  # Disable web search when using document search
         
         return await stream_agent_response(
@@ -181,7 +184,8 @@ async def chat_endpoint(request: ChatRequest):
             request.query, 
             request.thread_id,
             request.web_search,
-            use_document_search
+            use_document_search,
+            document_user_id  # Pass the user_id for document filtering
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -27,9 +27,9 @@ def create_qdrant_collection(client, collection_name, index_fields):
 
 def generate_vector(query: str) -> list:
     oai_client = AzureOpenAI(
-        azure_endpoint="https://openai-service-onfi.openai.azure.com/",
-        api_version="2024-02-01",
-        api_key="9b9ciDayq4k1RGk50bQ8D2ihDO03IANJXYrc5M6bLQIVkxYMu9fLJQQJ99BAACfhMk5XJ3w3AAABACOG0Wbs"
+        azure_endpoint=os.getenv("AZURE_ENDPOINT"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+        api_key=os.getenv("AZURE_KEY")
     )
     if not oai_client:
         logger.error("OpenAI client not initialized")
@@ -48,7 +48,7 @@ def generate_vector(query: str) -> list:
             
         response = oai_client.embeddings.create(
             input=[formatted_input],
-            model="onfi-embedding-model"
+            model=os.getenv("AZURE_EMBEDDING_MODEL")
         )
         
         return response.data[0].embedding

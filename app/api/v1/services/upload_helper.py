@@ -14,9 +14,9 @@ load_dotenv()
 
 class UploadToBlob:
     def __init__(self):
-        self.account_name = "prodpublic24"
-        self.account_key = "9uBBrUvKWddmweMD7uNvZb2KjaqYL1xM7I8+2M3tsVBDZZtPlbmm3cVzqIH6ZsjWaZabjVF1NJtS+AStzgxShg=="
-        self.container_name = "sebi-circulars"
+        self.account_name = os.getenv("AZURE_ACCOUNT_NAME")
+        self.account_key = os.getenv("AZURE_ACCOUNT_KEY")
+        self.container_name = os.getenv("AZURE_CONTAINER_NAME")
         self.connection_string = (
             f"DefaultEndpointsProtocol=https;"
             f"AccountName={self.account_name};"
